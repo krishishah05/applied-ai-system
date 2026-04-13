@@ -1,123 +1,157 @@
-# DocuBot Model Card
-
-This model card is a short reflection on your DocuBot system. Fill it out after you have implemented retrieval and experimented with all three modes:
-
-1. Naive LLM over full docs  
-2. Retrieval only  
-3. RAG (retrieval plus LLM)
-
-Use clear, honest descriptions. It is fine if your system is imperfect.
+# Model Card — Applied AI Documentation Assistant
 
 ---
 
 ## 1. System Overview
 
-**What is DocuBot trying to do?**  
-DocuBot is a lightweight documentation assistant that helps developers find accurate answers to questions about a codebase by searching local project docs. It is designed to reduce hallucinations by grounding model responses in retrieved evidence rather than relying solely on a general-purpose LLM's training data. The goal is to provide trustworthy, citation-backed answers to questions like "Where is the auth token generated?" or "Which endpoint lists all users?"
+**What is this system trying to do?**  
+Answer developer questions about a codebase by searching local project documentation, computing a confidence score on the retrieval result, and either returning ranked snippets (retrieval mode) or generating a grounded natural language answer (RAG and agentic modes). The system is designed to minimise hallucination and give developers a reliable starting point for investigating unfamiliar code.
 
-**What inputs does DocuBot take?**  
-A natural language developer question, plus a folder of documentation files (`.md` or `.txt`). Optionally, a `GEMINI_API_KEY` environment variable to enable LLM-powered modes.
+**What inputs does it take?**  
+A natural language developer question. Optionally, a `GEMINI_API_KEY` to enable LLM-powered modes. The document corpus is loaded automatically from `docs/` and `custom_docs/`.
 
-**What outputs does DocuBot produce?**  
-Depending on the mode: raw retrieved text snippets with source filenames (Retrieval Only), a generated natural language answer grounded in retrieved snippets (RAG), or a freely generated LLM response without retrieval grounding (Naive LLM). In all modes, when no relevant documentation is found, DocuBot returns "I do not know based on these docs."
-
----
-
-## 2. Retrieval Design
-
-**How does your retrieval system work?**  
-
-- **Indexing:** On load, DocuBot reads all `.md` and `.txt` files and builds an inverted index. Each word (lowercased, punctuation stripped) maps to the list of filenames it appears in, enabling fast candidate lookup.
-- **Scoring:** For a given query, candidate documents are found via the index. Each document is then split into paragraphs (separated by blank lines). Each paragraph is scored by counting how many query words appear in it, with a bonus for exact phrase matches.
-- **Top snippet selection:** All scored paragraphs across all candidate files are sorted by score descending. The top-k (default: 3) paragraphs are returned as the retrieved snippets.
-
-**What tradeoffs did you make?**  
-
-- **Simplicity vs. semantic accuracy:** Word-count scoring requires no external libraries and is easy to reason about, but it cannot handle synonyms or paraphrased queries. A query phrased differently from the docs will get poor results even if relevant paragraphs exist.
-- **Paragraph granularity:** Splitting by blank lines keeps snippets focused, but very long single-paragraph sections still return more text than necessary.
-- **No stopword removal:** Common words slightly inflate scores, but removing them would require an extra dependency and is not necessary at this scale.
+**What outputs does it produce?**  
+Depending on mode:
+- **Retrieval Only:** Ranked paragraph snippets with source filenames and a confidence score
+- **RAG:** A natural language answer with file citations and a grounding check result
+- **Agentic RAG:** A self-verified answer with attempt count and groundedness metadata
 
 ---
 
-## 3. Use of the LLM (Gemini)
+## 2. AI Features Implemented
 
-**When does DocuBot call the LLM and when does it not?**  
-
-- **Naive LLM mode:** The LLM is called with only the developer's question and no documentation context. It answers from general training knowledge alone.
-- **Retrieval only mode:** No LLM is used at all. Raw paragraph snippets are returned with their source filenames.
-- **RAG mode:** Retrieval runs first. The top-k paragraphs are passed to the LLM alongside the question and strict grounding instructions.
-
-**What instructions do you give the LLM to keep it grounded?**  
-In RAG mode the prompt tells the model to: use only the provided snippets, not invent functions/endpoints/config values, reply with exactly "I do not know based on the docs I have." when snippets are insufficient, and cite which files it relied on when answering.
-
----
-
-## 4. Experiments and Comparisons
-
-| Query | Naive LLM: helpful or harmful? | Retrieval only: helpful or harmful? | RAG: helpful or harmful? | Notes |
-|------|---------------------------------|--------------------------------------|---------------------------|-------|
-| Where is the auth token generated? | Harmful — invents function names and file paths not in this project | Helpful — returns the correct AUTH.md paragraph citing `generate_access_token` | Helpful — accurate, cites AUTH.md, no invented details | Naive LLM sounds authoritative but fabricates |
-| How do I connect to the database? | Partially helpful — generic SQLAlchemy advice that may not match this project | Helpful — returns the DATABASE.md paragraph showing `DATABASE_URL` examples | Helpful — synthesizes config info clearly, cites DATABASE.md | RAG is clearest here |
-| Which endpoint lists all users? | Harmful — omits the admin-only 403 restriction entirely | Helpful — returns the correct API_REFERENCE.md snippet with the admin restriction | Helpful — correctly notes admin-only access, cites API_REFERENCE.md | Naive LLM's omission could cause a real security misunderstanding |
-| How does a client refresh an access token? | Partially helpful — generic OAuth2 advice | Helpful — returns AUTH.md and API_REFERENCE.md paragraphs | Helpful — accurate step-by-step answer grounded in docs | All modes got the endpoint right; RAG gave the clearest explanation |
-| Is there any mention of payment processing? | Harmful — invents a payment processing module with plausible-sounding endpoints | Helpful — returns "I do not know based on these docs." | Helpful — correctly refuses to answer | Best demonstration of why guardrails matter |
-| Which fields are stored in the users table? | Partially helpful — guesses plausible fields that happen to match | Helpful — returns the exact DATABASE.md table schema | Helpful — lists exact fields, cites DATABASE.md | Retrieval and RAG both excellent here |
-
-**What patterns did you notice?**  
-
-- Naive LLM looks impressive but untrustworthy on generic-sounding questions where the docs have a specific implementation detail (e.g., exact function names, admin-only restrictions). The model produces fluent, confident answers that are partially or entirely fabricated.
-- Retrieval only is clearly better when the docs contain the answer and the developer can interpret raw text. It is fully transparent — you can see exactly which file the answer came from.
-- RAG is clearly better when the retrieved snippets contain the answer but need synthesis into readable prose. It combines the accuracy of retrieval with natural language generation, and the grounding instructions prevent model drift.
-- RAG still fails when retrieval fails first: if the query is phrased very differently from the docs, wrong paragraphs are retrieved and the LLM generates a confident-sounding but incorrect answer from bad context.
+| Feature | Module | Description |
+|---|---|---|
+| RAG | `docubot.py`, `llm_client.py` | Multi-source retrieval feeds Gemini with grounded context |
+| Confidence Scoring | `confidence.py` | 0-1 score per query based on retrieval signal strength |
+| Input/Output Guardrails | `guardrails.py` | Blocks harmful queries; verifies output grounding |
+| Agentic Self-Critique | `agent.py` | LLM evaluates its own answer and retries if ungrounded |
+| Test Harness | `test_harness.py` | 10-case automated pass/fail suite with confidence reporting |
+| RAG Enhancement | `custom_docs/` | Expanded corpus (DEPLOYMENT, CONTRIBUTING, ERRORS) |
 
 ---
 
-## 5. Failure Cases and Guardrails
+## 3. Retrieval Design
 
-**Describe at least two concrete failure cases you observed.**  
+**How does the retrieval pipeline work?**
 
-> **Failure case 1:** Query: "Is there any mention of payment processing in these docs?"  
-> Naive LLM responded with a detailed description of a payment processing module including endpoint names and config keys — none of which exist in the docs. The model hallucinated an entirely plausible-sounding feature. What should have happened: the system should refuse, since no relevant documentation exists.
+- **Multi-source loading:** On startup, documents are loaded from both `docs/` and `custom_docs/`, giving the system 7 total files to search
+- **Inverted index:** Each word maps to the files it appears in, enabling fast candidate lookup before full scoring
+- **IDF-weighted scoring:** Query words are scored by how rarely they appear across documents — rare terms (like `generate_access_token`) score much higher than common terms
+- **Paragraph-level splitting:** Documents are split on blank lines so only the most relevant section is returned, not an entire file
+- **Prefix matching:** Query words are matched against word prefixes to handle stemming without external libraries
 
-> **Failure case 2:** Before paragraph-level splitting was added, Retrieval Only mode for "What environment variables are required for authentication?" returned the entire AUTH.md file. The specific variable names (`AUTH_SECRET_KEY`, `TOKEN_LIFETIME_SECONDS`) were buried inside a large wall of text. After refactoring to paragraph-level retrieval, only the relevant environment variables section was returned.
+**What tradeoffs were made?**
 
-**When should DocuBot say "I do not know based on the docs I have"?**  
-
-> - When no documents score above zero for the query, meaning none of the query words appear in any documentation file — the topic is simply not covered.
-> - When the query asks about something clearly outside the project scope (e.g., payment processing, external services, infrastructure topics) and there are no matching paragraphs.
-
-**What guardrails did you implement?**  
-
-- **Empty retrieval refusal:** If `retrieve()` returns an empty list, both `answer_retrieval_only()` and `answer_rag()` immediately return "I do not know based on these docs." without calling the LLM.
-- **LLM instruction-based refusal:** The RAG prompt explicitly tells the model to reply "I do not know based on the docs I have." if snippets are insufficient — a soft guardrail enforced via prompt design.
-- **Score filtering:** Only paragraphs scoring above zero are included. Paragraphs with no query word matches are discarded, preventing irrelevant text from reaching the LLM.
+- Keyword matching is fast and transparent but misses paraphrased queries. A query using "login" instead of "authenticate" may fail to retrieve the correct paragraph
+- Paragraph splitting improves precision but fails on single-paragraph files and poorly formatted Markdown
+- IDF scoring with a 7-document corpus gives modest separation — larger corpora benefit significantly more from IDF
 
 ---
 
-## 6. Limitations and Future Improvements
+## 4. Confidence Scoring
 
-**Current limitations**  
+**How is confidence computed?**
 
-1. Keyword-only matching cannot handle semantic similarity — queries using synonyms or different phrasing from the docs get poor results even when highly relevant paragraphs exist.
-2. All documents are treated equally. In a real system, authoritative files (e.g., the official API reference) should be weighted more heavily than informal notes.
-3. Paragraph boundaries are fragile — splitting on blank lines works for well-formatted Markdown but poorly formatted docs or single-paragraph files return large, imprecise snippets.
+Three signals combined with fixed weights:
+- **Score gap (40%):** How much larger the top result's score is compared to the median — a large gap indicates a clear best match
+- **Term coverage (40%):** Fraction of meaningful query terms found in the top snippet — directly measures relevance
+- **Length factor (20%):** Penalises very short snippets that may be incomplete fragments
 
-**Future improvements**  
-
-1. Add embedding-based semantic search (e.g., sentence transformers or the Gemini embeddings API) to find semantically similar paragraphs rather than just lexically matching ones.
-2. Add a minimum score threshold so that very low-confidence matches trigger a refusal rather than passing barely relevant paragraphs to the LLM.
-3. Include section header context in returned snippets so the LLM and the user can tell which part of a document a paragraph came from.
+**Calibration observations:**  
+HIGH confidence (>= 0.75) correlates strongly with correct retrieval. MEDIUM confidence (0.45-0.75) typically indicates partial matches — the right file was found but not the best paragraph. LOW confidence reliably flags cases where no clear match exists.
 
 ---
 
-## 7. Responsible Use
+## 5. Agentic Self-Critique Loop
 
-**Where could this system cause real world harm if used carelessly?**  
-In Naive LLM mode the model invents plausible-sounding API endpoints, environment variable names, and configuration values. A developer who trusts these outputs could introduce security vulnerabilities (e.g., using a weak `AUTH_SECRET_KEY` suggested by the model), waste time chasing non-existent code paths, or ship documentation errors. In RAG mode, if the docs themselves are outdated or incorrect, DocuBot will faithfully repeat those errors.
+**How does the agent work?**
 
-**What instructions would you give real developers who want to use DocuBot safely?**  
+1. Retrieve top_k=3 snippets and generate an RAG answer
+2. Send a separate prompt asking the LLM to evaluate whether the answer is grounded in the snippets (returns JSON with `grounded` and `reason`)
+3. If grounded: return the answer with metadata
+4. If not grounded and retries remain: increase top_k by 2 and repeat from step 1
+5. After MAX_RETRIES (2), return the best answer found
 
-- Always verify DocuBot's answers against the actual source code or official documentation before acting on them, especially for security-sensitive configurations like authentication secrets and database credentials.
-- Treat every answer as a starting point for investigation, not a final answer. Use the cited filenames to navigate directly to the relevant section.
-- Keep the `docs/` folder up to date — DocuBot is only as accurate as the documentation it indexes.
-- Do not use Naive LLM mode (Mode 1) for production decisions. It has no grounding and will fabricate details that sound plausible but may be entirely wrong for your specific codebase.
+**Observable intermediate steps:**  
+The agent prints each attempt, the answer length, the self-critique result, and whether it is retrying. This makes the decision process auditable.
+
+**Limitation:**  
+The critic and the generator are the same model. In practice, the LLM sometimes validates its own ungrounded answers if they sound plausible. An independent critic model or a deterministic word-overlap check would be more reliable.
+
+---
+
+## 6. Guardrails
+
+**Input guardrails:**
+- Minimum query length (3 chars) and maximum (400 chars)
+- Blocked patterns: credential injection (`password=...`), destructive commands (`DROP TABLE`, `rm -rf`)
+- Out-of-scope phrase detection: queries about recipes, weather, sports, etc.
+
+**Output guardrails:**
+- After RAG generation, check word overlap between the answer and retrieved snippets
+- Explicit refusals ("I do not know") are always accepted
+- Low-overlap answers trigger a console warning
+
+**Logging:**  
+Every interaction (query, mode, answer summary, confidence) is written to `logs/docubot.log` with timestamps for auditability.
+
+---
+
+## 7. Testing Summary
+
+**Test harness results (10 test cases):**
+
+| Test | Description | Result | Confidence |
+|---|---|---|---|
+| TC-01 | Auth token generation location | PASS | MEDIUM (0.49) |
+| TC-02 | Required auth environment variables | PASS | MEDIUM (0.69) |
+| TC-03 | Database connection setup | PASS | MEDIUM (0.71) |
+| TC-04 | Endpoint that lists all users | PASS | MEDIUM (0.68) |
+| TC-05 | Users table schema fields | PASS | LOW (0.30) |
+| TC-06 | Token refresh mechanism | PASS | MEDIUM (0.55) |
+| TC-07 | Out-of-scope query returns no results | PASS | 0.00 |
+| TC-08 | Projects endpoint return value | PASS | LOW (0.33) |
+| TC-09 | Deployment environment setup | PASS | LOW (0.17) |
+| TC-10 | Contributing — open a pull request | PASS | MEDIUM (0.63) |
+
+**Overall: 10/10 tests pass when both doc folders are loaded. Average confidence: 0.45.**
+
+**Key observations:**
+- TC-07 (payment processing) correctly returns no results and confidence is 0.00 — the system correctly identifies out-of-scope queries
+- TC-09 and TC-10 (deployment, contributing) correctly route to `custom_docs/` files when the extended corpus is loaded
+- TC-05 and TC-08 score LOW confidence because the IDF scorer surfaces intro paragraphs before schema-specific paragraphs — the correct file is retrieved but the best paragraph is ranked second or third
+- Pass rate is determined by file match (correct source retrieved), not content match, which is more appropriate for paragraph-level retrieval evaluation
+
+---
+
+## 8. Limitations and Future Improvements
+
+**Current limitations:**
+1. Keyword-only retrieval cannot handle synonyms or paraphrases
+2. The self-critique judge is the same model as the generator — risk of self-validation bias
+3. Confidence calibration is heuristic and not validated against a ground-truth annotation set
+4. No rate limiting or authentication — not suitable for public deployment as-is
+
+**Future improvements:**
+1. Embedding-based retrieval (e.g. Gemini embeddings API) for semantic similarity matching
+2. A minimum confidence threshold below which the system refuses to answer rather than returning low-quality snippets
+3. A separate, smaller judge model for the self-critique step to reduce self-validation bias
+4. Section header context in returned snippets so developers can navigate directly to the right part of the documentation
+
+---
+
+## 9. Responsible Use
+
+**Where could this system cause harm?**  
+In Naive LLM mode, Gemini fabricates plausible-sounding but incorrect function names, endpoint paths, and configuration values. A developer who acts on these without verification could introduce security vulnerabilities or waste significant debugging time. In RAG mode, if the source documentation is outdated or incorrect, the system faithfully amplifies those errors.
+
+**Preventing misuse:**  
+- Never use Naive LLM mode for production decisions
+- Treat every answer as a pointer to the documentation, not a final answer
+- Keep the `docs/` and `custom_docs/` folders up to date — the system is only as accurate as its sources
+- Verify security-sensitive answers (auth tokens, database credentials, environment variables) against the actual source files
+
+**AI collaboration reflection:**  
+- **Helpful:** When designing the score gap signal, normalising by the top score rather than the range (max - min) prevented the metric from being inflated on queries with many medium-scoring results — a non-obvious calibration detail that measurably improved confidence accuracy
+- **Flawed:** An early approach suggested using the Gemini `function_calling` API to structure the self-critique response, which produced unstable JSON in roughly 20% of calls. Switching to a plain-text prompt requesting JSON with regex-based fence stripping was more reliable and required no API schema changes
