@@ -11,7 +11,7 @@ import os
 from google import genai
 from google.genai import types
 
-GEMINI_MODEL_NAME = "gemini-1.5-flash"
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
 
 class GeminiClient:
