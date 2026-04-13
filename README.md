@@ -277,6 +277,7 @@ The self-critique step was more reliable than expected — in 90% of test cases 
 <img width="1459" height="769" alt="image" src="https://github.com/user-attachments/assets/6d1c0d50-e70c-4279-99f5-a920034d309c" />
 <img width="680" height="361" alt="image" src="https://github.com/user-attachments/assets/331fc1e4-1e77-4748-b8af-4b3d217a545e" />
 <img width="657" height="330" alt="image" src="https://github.com/user-attachments/assets/093b2a56-3847-498e-ad6b-668b46420fde" />
+<img width="1462" height="814" alt="image" src="https://github.com/user-attachments/assets/59884419-8104-42f9-9e1e-5509ef45b107" />
 
 
 
