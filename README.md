@@ -270,9 +270,15 @@ The self-critique step was more reliable than expected — in 90% of test cases 
 
 ---
 
-## Video Walkthrough
+## Loom Walkthrough -  screenshots
 
-[Loom video link — add before submission]
+<img width="1459" height="769" alt="image" src="https://github.com/user-attachments/assets/1608784c-c4a5-49d2-ba5f-6173f6b7cc9a" />
+<img width="1459" height="769" alt="image" src="https://github.com/user-attachments/assets/cc36867b-8d6b-4591-82a3-58cd1853c627" />
+<img width="1459" height="769" alt="image" src="https://github.com/user-attachments/assets/6d1c0d50-e70c-4279-99f5-a920034d309c" />
+<img width="680" height="361" alt="image" src="https://github.com/user-attachments/assets/331fc1e4-1e77-4748-b8af-4b3d217a545e" />
+<img width="657" height="330" alt="image" src="https://github.com/user-attachments/assets/093b2a56-3847-498e-ad6b-668b46420fde" />
+
+
 
 ---
 
